@@ -1,0 +1,37 @@
+[
+    {
+        "id": "sync_roles",
+        "source": "db://remote/users",
+        "mapping": {
+            "name": "name",
+            "username": "username",
+            "password": "password",
+            "created_at": "created_at",
+            "updated_at": "updated_at"
+        },
+        "filters": [
+            {
+                "field": "id",
+                "op": ">",
+                "value": 0
+            }
+        ],
+        "target": "default",
+        "target_config": {
+            "table": "users_copy",
+            "uniques": [
+                "username"
+            ],
+            "updates": [
+                "name",
+                "password"
+            ]
+        },
+        "size": 20,
+        "workers": 3,
+        "at": "00:00",
+        "immediately": false,
+        "interval": "1d",
+        "stop_on_error": true
+    }
+]
