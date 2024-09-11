@@ -34,8 +34,8 @@ func (t *TargetConfig) UnmarshalJSON(row []byte) error {
 
 type Target interface {
 	SyncFrom(conf TargetConfig, data []map[string]any, meta *SyncMeta) error
-	BeforeSync(conf TargetConfig, meta *SyncMeta)
-	AfterSync(conf TargetConfig, meta *SyncMeta)
+	BeforeSync(conf TargetConfig, meta *SyncMeta) error
+	AfterSync(conf TargetConfig, meta *SyncMeta) error
 }
 
 var (
@@ -61,10 +61,11 @@ type DBTargetConfig struct {
 	Uniques []string `json:"uniques"`
 	Updates []string `json:"updates"`
 
-	VersionField  string `json:"version_field"`
-	SyncTimeField string `json:"sync_time_field"`
-	SyncTimeFmt   string `json:"sync_time_fmt"`
-	MaxVersion    int    `json:"max_version"`
+	VersionField    string `json:"version_field"`
+	SyncTimeField   string `json:"sync_time_field"`
+	SyncTimeFmt     string `json:"sync_time_fmt"`
+	SyncStatusField string `json:"sync_status_field"`
+	MaxVersion      int    `json:"max_version"`
 }
 
 type DBTarget struct {
@@ -106,6 +107,9 @@ func (db *DBTarget) SyncFrom(conf TargetConfig, data []map[string]any, meta *Syn
 			if config.SyncTimeField != "" {
 				row[config.SyncTimeField] = now.Format(timeFmt)
 			}
+			if config.SyncStatusField != "" {
+				row[config.SyncStatusField] = 1
+			}
 			return row
 		})
 	}
@@ -113,7 +117,7 @@ func (db *DBTarget) SyncFrom(conf TargetConfig, data []map[string]any, meta *Syn
 	return tx.Table(config.Table).Scopes(dbutil.WithUpsert(opts...)).Create(data).Error
 }
 
-func (db *DBTarget) BeforeSync(conf TargetConfig, meta *SyncMeta) {
+func (db *DBTarget) BeforeSync(conf TargetConfig, meta *SyncMeta) error {
 	var config DBTargetConfig
 	conf.Unmarshal(&config)
 
@@ -121,23 +125,43 @@ func (db *DBTarget) BeforeSync(conf TargetConfig, meta *SyncMeta) {
 		tx := db.newSession()
 
 		var version int
-		tx.Select(fmt.Printf("MAX(%s)", config.VersionField)).Table(config.Table).Scan(&version)
+		model := ds.MapModel(config.Table)
+		e := tx.Model(&model).Select(fmt.Sprintf("MAX(%s)", config.VersionField)).Table(config.Table).Scan(&version).Error
 
 		meta.Version = version + 1
+
+		return e
 	}
+
+	return nil
 }
 
-func (db *DBTarget) AfterSync(conf TargetConfig, meta *SyncMeta) {
+func (db *DBTarget) AfterSync(conf TargetConfig, meta *SyncMeta) error {
 	var config DBTargetConfig
 	conf.Unmarshal(&config)
 
-	if config.VersionField != "" {
+	if config.SyncStatusField != "" && config.VersionField != "" {
+		tx := db.newSession()
+		model := ds.MapModel(config.Table)
+		e := tx.Model(&model).Table(config.Table).Where(fmt.Sprintf("%s < ?", config.VersionField), meta.Version).Update(config.SyncStatusField, 0).Error
+
+		if e != nil {
+			return e
+		}
+	}
+
+	if config.VersionField != "" && config.MaxVersion > 0 {
 		tx := db.newSession()
 
 		model := ds.MapModel(config.Table)
 
-		tx.Where(fmt.Sprintf("%s < ? AND %s > ?", config.VersionField, config.VersionField), meta.Version-config.MaxVersion, 0).Table(config.Table).Delete(&model)
+		e := tx.Where(fmt.Sprintf("%s < ? AND %s > ?", config.VersionField, config.VersionField), meta.Version-config.MaxVersion, 0).Table(config.Table).Delete(&model).Error
+		if e != nil {
+			return e
+		}
 	}
+
+	return nil
 }
 
 func (db *DBTarget) newSession() *gorm.DB {

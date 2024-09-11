@@ -93,7 +93,9 @@ func TestSource(t *testing.T) {
 		t.Fatal(er)
 	}
 
-	res, e := source.List(ds.ListOption{})
+	res, e := source.List(ds.ListOption{
+		Limit: 20,
+	})
 
 	if e != nil {
 		t.Fatal(e)

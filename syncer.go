@@ -3,11 +3,14 @@ package syncer
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alitto/pond"
 	"github.com/enorith/syncer/ds"
+	"github.com/go-co-op/gocron"
 )
 
 type SyncerTask struct {
@@ -67,6 +70,19 @@ func (s *Syncer) GetTask(id string) (SyncerTask, bool) {
 	return task, ok
 }
 
+func (s *Syncer) Schedule(sch *gocron.Scheduler) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, task := range s.tasks {
+		if task.Interval != "" {
+			sch.Every(task.Interval).Do(func() {
+				s.SyncTask(task)
+			})
+		}
+	}
+}
+
 func (s *Syncer) DoSync(id string) (int64, error) {
 	task, ok := s.GetTask(id)
 
@@ -104,12 +120,14 @@ func (s *Syncer) SyncTask(task SyncerTask) (int64, error) {
 	}
 
 	var syncMeta = SyncMeta{
-		Version: 1,
-		Total:   meta.Total,
-		Status:  SyncStatusPending,
+		Total:  meta.Total,
+		Status: SyncStatusPending,
 	}
 
-	target.BeforeSync(task.TargetConfig, &syncMeta)
+	e = target.BeforeSync(task.TargetConfig, &syncMeta)
+	if e != nil {
+		return meta.Total, e
+	}
 
 	var syncFunc = func(page int64) error {
 		data, e := dataSource.List(ds.ListOption{
@@ -157,6 +175,9 @@ func (s *Syncer) SyncTask(task SyncerTask) (int64, error) {
 			}
 		}
 
+		delayRand := time.Duration(10+rand.Intn(20)) * time.Millisecond
+
+		<-time.After(delayRand)
 		return target.SyncFrom(task.TargetConfig, syncData, &syncMeta)
 	}
 
@@ -186,6 +207,11 @@ func (s *Syncer) SyncTask(task SyncerTask) (int64, error) {
 	case err := <-errChan:
 		syncMeta.Status = SyncStatusFailed
 		syncMeta.Error = err
+	}
+
+	e = target.AfterSync(task.TargetConfig, &syncMeta)
+	if e != nil {
+		return meta.Total, e
 	}
 
 	return meta.Total, syncMeta.Error
