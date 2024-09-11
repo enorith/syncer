@@ -82,12 +82,12 @@ func (s *Syncer) Schedule(sch *gocron.Scheduler) {
 
 				ev, e := strconv.Atoi(i)
 				if e == nil {
-					sch.Every(ev).Day().Do(func() {
+					sch.Every(ev).Day().Tag("syncer:" + task.ID).Do(func() {
 						s.SyncTask(task)
 					})
 				}
 			} else {
-				sch.Every(task.Interval).Do(func() {
+				sch.Every(task.Interval).Tag("syncer:" + task.ID).Do(func() {
 					s.SyncTask(task)
 				})
 			}
