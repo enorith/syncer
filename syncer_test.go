@@ -103,3 +103,7 @@ func TestSource(t *testing.T) {
 
 	printJson(res)
 }
+
+func TestInterval(t *testing.T) {
+	t.Log(time.ParseDuration("24h"))
+}

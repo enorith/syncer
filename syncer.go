@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,9 +77,20 @@ func (s *Syncer) Schedule(sch *gocron.Scheduler) {
 
 	for _, task := range s.tasks {
 		if task.Interval != "" {
-			sch.Every(task.Interval).Do(func() {
-				s.SyncTask(task)
-			})
+			if isD, sub := EndWith(task.Interval, "d", "day", "days"); isD {
+				i := task.Interval[:len(task.Interval)-len(sub)]
+
+				ev, e := strconv.Atoi(i)
+				if e == nil {
+					sch.Every(ev).Day().Do(func() {
+						s.SyncTask(task)
+					})
+				}
+			} else {
+				sch.Every(task.Interval).Do(func() {
+					s.SyncTask(task)
+				})
+			}
 		}
 	}
 }
